@@ -38,18 +38,17 @@ class OcrViewModel @Inject constructor(
     private val _saveSuccess = MutableStateFlow(false)
     val saveSuccess: StateFlow<Boolean> = _saveSuccess.asStateFlow()
 
+    // 多笔交易
+    private var allResults: List<OcrResult> = emptyList()
+    private var currentIndex = 0
     private var currentResult: OcrResult? = null
 
     fun recognizeImage(context: Context, uri: Uri) {
         viewModelScope.launch {
             _uiState.value = OcrUiState.Processing
             try {
-                val result = ocrEngine.recognizeFromUri(context, uri)
-                currentResult = result
-                _editableAmount.value = result.amount?.let { "%.2f".format(it) } ?: ""
-                _editableMerchant.value = result.merchant ?: ""
-                _editableCategory.value = guessCategory(result)
-                _uiState.value = OcrUiState.Result(result)
+                val text = ocrEngine.recognizeTextFromUri(context, uri)
+                processOcrText(text)
             } catch (e: Exception) {
                 _uiState.value = OcrUiState.Error("识别失败: ${e.message}")
             }
@@ -62,17 +61,69 @@ class OcrViewModel @Inject constructor(
         if (clip != null && clip.itemCount > 0) {
             val text = clip.getItemAt(0).text?.toString() ?: ""
             if (text.isNotBlank()) {
-                val result = ocrEngine.parseOcrText(text)
-                currentResult = result
-                _editableAmount.value = result.amount?.let { "%.2f".format(it) } ?: ""
-                _editableMerchant.value = result.merchant ?: ""
-                _editableCategory.value = guessCategory(result)
-                _uiState.value = OcrUiState.Result(result)
+                processOcrText(text)
             } else {
                 _uiState.value = OcrUiState.Error("剪贴板为空")
             }
         } else {
             _uiState.value = OcrUiState.Error("剪贴板为空")
+        }
+    }
+
+    private fun processOcrText(text: String) {
+        val results = ocrEngine.parseMultipleTransactions(text)
+        allResults = results
+        currentIndex = 0
+
+        if (results.isEmpty()) {
+            _uiState.value = OcrUiState.Error("未识别到任何内容")
+            return
+        }
+
+        loadResult(results[0])
+
+        if (results.size > 1) {
+            _uiState.value = OcrUiState.MultiResult(
+                results = results,
+                currentIndex = 0,
+                currentResult = results[0]
+            )
+        } else {
+            _uiState.value = OcrUiState.Result(results[0])
+        }
+    }
+
+    private fun loadResult(result: OcrResult) {
+        currentResult = result
+        _editableAmount.value = result.amount?.let { "%.2f".format(it) } ?: ""
+        _editableMerchant.value = result.merchant ?: ""
+        _editableCategory.value = guessCategory(result)
+        _isIncome.value = false
+    }
+
+    // 切换到下一笔
+    fun nextResult() {
+        if (currentIndex < allResults.size - 1) {
+            currentIndex++
+            loadResult(allResults[currentIndex])
+            _uiState.value = OcrUiState.MultiResult(
+                results = allResults,
+                currentIndex = currentIndex,
+                currentResult = allResults[currentIndex]
+            )
+        }
+    }
+
+    // 切换到上一笔
+    fun previousResult() {
+        if (currentIndex > 0) {
+            currentIndex--
+            loadResult(allResults[currentIndex])
+            _uiState.value = OcrUiState.MultiResult(
+                results = allResults,
+                currentIndex = currentIndex,
+                currentResult = allResults[currentIndex]
+            )
         }
     }
 
@@ -102,12 +153,41 @@ class OcrViewModel @Inject constructor(
                 rawText = currentResult?.rawText ?: ""
             )
             repository.insert(transaction)
+
+            // 如果是多笔，保存当前这笔后自动跳到下一笔
+            if (allResults.size > 1 && currentIndex < allResults.size - 1) {
+                nextResult()
+            } else {
+                _saveSuccess.value = true
+            }
+        }
+    }
+
+    // 一键保存所有识别到的交易
+    fun saveAllTransactions() {
+        viewModelScope.launch {
+            for (result in allResults) {
+                val amount = result.amount ?: continue
+                val transaction = Transaction(
+                    amount = -amount,
+                    category = guessCategory(result),
+                    merchant = result.merchant ?: "",
+                    description = result.items.joinToString(", "),
+                    paymentMethod = result.paymentMethod ?: "",
+                    source = "screenshot",
+                    isIncome = false,
+                    rawText = result.rawText
+                )
+                repository.insert(transaction)
+            }
             _saveSuccess.value = true
         }
     }
 
     fun reset() {
         _uiState.value = OcrUiState.Idle
+        allResults = emptyList()
+        currentIndex = 0
         currentResult = null
         _editableAmount.value = ""
         _editableMerchant.value = ""

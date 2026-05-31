@@ -2,7 +2,6 @@ package com.biin95.bookkeeping.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -32,13 +31,23 @@ class OcrEngine @Inject constructor() {
         return recognize(image)
     }
 
+    suspend fun recognizeTextFromUri(context: Context, uri: Uri): String {
+        val image = InputImage.fromFilePath(context, uri)
+        return recognizeText(image)
+    }
+
     suspend fun recognizeFromBitmap(bitmap: Bitmap): OcrResult {
         val image = InputImage.fromBitmap(bitmap, 0)
         return recognize(image)
     }
 
     private suspend fun recognize(image: InputImage): OcrResult {
-        val text = suspendCancellableCoroutine { cont ->
+        val text = recognizeText(image)
+        return parseOcrText(text)
+    }
+
+    private suspend fun recognizeText(image: InputImage): String {
+        return suspendCancellableCoroutine { cont ->
             recognizer.process(image)
                 .addOnSuccessListener { result ->
                     cont.resume(result.text)
@@ -47,8 +56,6 @@ class OcrEngine @Inject constructor() {
                     cont.resume("")
                 }
         }
-
-        return parseOcrText(text)
     }
 
     fun parseOcrText(text: String): OcrResult {
@@ -68,8 +75,86 @@ class OcrEngine @Inject constructor() {
         )
     }
 
+    /**
+     * 从 OCR 文本中解析多笔交易（一张截图包含多笔支付时）
+     */
+    fun parseMultipleTransactions(text: String): List<OcrResult> {
+        val allAmounts = extractAllAmounts(text)
+        if (allAmounts.isEmpty()) {
+            // 没找到金额，返回一个空结果
+            return listOf(OcrResult(text, null, null, emptyList(), extractPaymentMethod(text), extractDateTime(text)))
+        }
+
+        val paymentMethod = extractPaymentMethod(text)
+        val dateTime = extractDateTime(text)
+        val lines = text.split("\n")
+
+        return allAmounts.map { (amount, matchIndex) ->
+            // 取金额附近 ±2 行的文本作为上下文
+            val contextText = getContextAroundPosition(lines, text, matchIndex)
+            val merchant = extractMerchant(contextText)
+            val items = extractItems(contextText)
+
+            OcrResult(
+                rawText = contextText,
+                amount = amount,
+                merchant = merchant,
+                items = items,
+                paymentMethod = paymentMethod,
+                dateTime = dateTime
+            )
+        }
+    }
+
+    // 提取所有金额及其在原文中的位置
+    private fun extractAllAmounts(text: String): List<Pair<Double, Int>> {
+        val results = mutableListOf<Pair<Double, Int>>()
+        val patterns = listOf(
+            Pattern.compile("(?:实付|实收款|支付|付款|金额|合计|总计|花费|消费|扣款|转入|转出)[：:\\s]*[¥￥]?\\s*(\\d+\\.?\\d{0,2})"),
+            Pattern.compile("[¥￥]\\s*(\\d+\\.?\\d{0,2})"),
+            Pattern.compile("(?:CNY|RMB)\\s*(\\d+\\.?\\d{0,2})"),
+            Pattern.compile("(\\d+\\.\\d{2})\\s*元")
+        )
+
+        val seenRanges = mutableSetOf<Int>() // 避免同一位置重复匹配
+
+        for (pattern in patterns) {
+            val matcher = pattern.matcher(text)
+            while (matcher.find()) {
+                val amountStr = matcher.group(1) ?: continue
+                val amount = amountStr.toDoubleOrNull() ?: continue
+                if (amount <= 0) continue
+                val pos = matcher.start()
+                // 避免在相近位置重复（±5字符内算同一笔）
+                if (seenRanges.any { Math.abs(it - pos) < 5 }) continue
+                seenRanges.add(pos)
+                results.add(amount to pos)
+            }
+        }
+
+        // 按位置排序，保持文本中的出现顺序
+        return results.sortedBy { it.second }
+    }
+
+    // 根据金额在原文中的位置，取出附近 ±2 行作为上下文
+    private fun getContextAroundPosition(lines: List<String>, fullText: String, matchIndex: Int): String {
+        // 找到 matchIndex 所在的行号
+        var charCount = 0
+        var targetLine = 0
+        for ((i, line) in lines.withIndex()) {
+            charCount += line.length + 1 // +1 for \n
+            if (charCount > matchIndex) {
+                targetLine = i
+                break
+            }
+        }
+
+        val start = maxOf(0, targetLine - 2)
+        val end = minOf(lines.size - 1, targetLine + 2)
+        return lines.subList(start, end + 1).joinToString("\n")
+    }
+
     private fun extractAmount(text: String): Double? {
-        // 匹配金额模式：¥xx.xx, 支付xx.xx, 付款xx.xx, 实付xx.xx, 金额xx.xx, 合计xx.xx
         val patterns = listOf(
             Pattern.compile("(?:实付|实收款|支付|付款|金额|合计|总计|花费|消费|扣款|转入|转出)[：:\\s]*[¥￥]?\\s*(\\d+\\.?\\d{0,2})"),
             Pattern.compile("[¥￥]\\s*(\\d+\\.?\\d{0,2})"),
@@ -88,7 +173,6 @@ class OcrEngine @Inject constructor() {
     }
 
     private fun extractMerchant(text: String): String? {
-        // 匹配商户名模式
         val patterns = listOf(
             Pattern.compile("(?:商户|商家|店铺|收款方|对方)[：:\\s]*(.+?)(?:\\n|$)"),
             Pattern.compile("(?:付款给|支付到|转账给)[：:\\s]*(.+?)(?:\\n|$)"),
@@ -110,7 +194,6 @@ class OcrEngine @Inject constructor() {
 
         for (line in lines) {
             val trimmed = line.trim()
-            // 匹配商品行：商品名 x数量 ¥价格 或 商品名 数量x ¥价格
             if (trimmed.contains("×") || trimmed.contains("x") || trimmed.contains("X")) {
                 if (trimmed.matches(Regex(".*[¥￥]\\s*\\d+.*"))) {
                     items.add(trimmed)

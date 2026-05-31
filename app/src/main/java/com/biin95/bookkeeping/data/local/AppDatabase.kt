@@ -1,5 +1,6 @@
 package com.biin95.bookkeeping.data.local
 
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -22,6 +23,8 @@ abstract class AppDatabase : RoomDatabase() {
         fun createCallback() = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
+                Log.d("BookKeeping", "数据库 onCreate 回调开始，插入默认分类")
+                try {
                 val expenseCategories = listOf(
                     "Canyin", "Jiaotong", "Gouwu", "Yule", "Juzhu", "Yiliao", "Jiaoyu",
                     "Tongxun", "Fushi", "Riyong", "Shuiguo", "Lingshi", "Yinliao",
@@ -40,15 +43,20 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 for (i in expenseNames.indices) {
                     db.execSQL(
-                        "INSERT INTO categories (name, type, sortOrder, isDefault) VALUES (?, 'expense', ?, 1)",
+                        "INSERT INTO categories (name, icon, type, sortOrder, isDefault, merchantMapping) VALUES (?, 'ic_category', 'expense', ?, 1, '')",
                         arrayOf(expenseNames[i], i)
                     )
                 }
                 for (i in incomeNames.indices) {
                     db.execSQL(
-                        "INSERT INTO categories (name, type, sortOrder, isDefault) VALUES (?, 'income', ?, 1)",
+                        "INSERT INTO categories (name, icon, type, sortOrder, isDefault, merchantMapping) VALUES (?, 'ic_category', 'income', ?, 1, '')",
                         arrayOf(incomeNames[i], i)
                     )
+                }
+                Log.d("BookKeeping", "数据库 onCreate 回调完成，默认分类已插入")
+                } catch (e: Exception) {
+                    Log.e("BookKeeping", "数据库 onCreate 回调异常", e)
+                    throw e
                 }
             }
         }

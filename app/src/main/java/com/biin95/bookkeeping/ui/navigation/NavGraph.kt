@@ -1,5 +1,6 @@
 package com.biin95.bookkeeping.ui.navigation
 
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -10,13 +11,16 @@ import com.biin95.bookkeeping.ui.add.AddTransactionScreen
 import com.biin95.bookkeeping.ui.detail.TransactionDetailScreen
 import com.biin95.bookkeeping.ui.home.HomeScreen
 import com.biin95.bookkeeping.ui.ocr.OcrCaptureScreen
+import com.biin95.bookkeeping.ui.settings.PermissionsScreen
 import com.biin95.bookkeeping.ui.settings.SettingsScreen
 import com.biin95.bookkeeping.ui.stats.StatisticsScreen
 
 @Composable
 fun NavGraph(navController: NavHostController) {
+    Log.d("BookKeeping", "NavGraph 开始构建")
     NavHost(navController = navController, startDestination = Screen.Home.route) {
         composable(Screen.Home.route) {
+            Log.d("BookKeeping", "NavGraph: 进入 HomeScreen")
             HomeScreen(navController = navController)
         }
         composable(
@@ -46,6 +50,9 @@ fun NavGraph(navController: NavHostController) {
         }
         composable(Screen.Settings.route) {
             SettingsScreen(navController = navController)
+        }
+        composable(Screen.Permissions.route) {
+            PermissionsScreen(navController = navController)
         }
         composable(Screen.OcrCapture.route) {
             OcrCaptureScreen(navController = navController)

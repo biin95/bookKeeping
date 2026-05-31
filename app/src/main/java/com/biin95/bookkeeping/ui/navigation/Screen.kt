@@ -12,5 +12,6 @@ sealed class Screen(val route: String) {
     }
     data object Statistics : Screen("statistics")
     data object Settings : Screen("settings")
+    data object Permissions : Screen("permissions")
     data object OcrCapture : Screen("ocr_capture")
 }

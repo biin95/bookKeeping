@@ -2,6 +2,7 @@ package com.biin95.bookkeeping
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -22,15 +23,27 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        Log.d("BookKeeping", "MainActivity.onCreate 开始")
+        try {
+            super.onCreate(savedInstanceState)
+            Log.d("BookKeeping", "super.onCreate 完成")
+            enableEdgeToEdge()
+            Log.d("BookKeeping", "enableEdgeToEdge 完成")
 
-        val startOcr = intent?.action == "com.biin95.bookkeeping.ACTION_OCR_CAPTURE"
+            val startOcr = intent?.action == "com.biin95.bookkeeping.ACTION_OCR_CAPTURE"
+            Log.d("BookKeeping", "startOcr=$startOcr")
 
-        setContent {
-            BookKeepingTheme {
-                MainApp(startOcr = startOcr)
+            setContent {
+                Log.d("BookKeeping", "setContent 开始")
+                BookKeepingTheme {
+                    Log.d("BookKeeping", "BookKeepingTheme 开始")
+                    MainApp(startOcr = startOcr)
+                }
             }
+            Log.d("BookKeeping", "MainActivity.onCreate 完成")
+        } catch (e: Exception) {
+            Log.e("BookKeeping", "MainActivity.onCreate 异常", e)
+            throw e
         }
     }
 
@@ -45,6 +58,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainApp(startOcr: Boolean) {
+    Log.d("BookKeeping", "MainApp Composable 开始")
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -53,6 +67,7 @@ fun MainApp(startOcr: Boolean) {
     val showBottomBar = currentRoute in bottomBarScreens
 
     LaunchedEffect(startOcr) {
+        Log.d("BookKeeping", "LaunchedEffect startOcr=$startOcr")
         if (startOcr) {
             navController.navigate(Screen.OcrCapture.route)
         }

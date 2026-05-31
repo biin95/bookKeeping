@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.biin95.bookkeeping.service.FloatingButtonService
+import com.biin95.bookkeeping.service.ScreenshotMonitorService
+import com.biin95.bookkeeping.ui.navigation.Screen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +43,16 @@ fun SettingsScreen(
         uri?.let { viewModel.importData(context, it) }
     }
 
+    // 恢复已开启的服务（设置从 DataStore 加载后）
+    LaunchedEffect(settings) {
+        if (settings.floatingButtonEnabled && Settings.canDrawOverlays(context)) {
+            FloatingButtonService.start(context)
+        }
+        if (settings.autoScreenshotOcr) {
+            ScreenshotMonitorService.start(context)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("设置") })
@@ -50,7 +64,17 @@ fun SettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            // 截图识别触发方式
+            // ── 权限管理 ──
+            SettingsClickable(
+                title = "权限状态",
+                subtitle = "查看各功能所需权限的授权状态",
+                onClick = { navController.navigate(Screen.Permissions.route) },
+                icon = Icons.Default.Security
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ── 截图识别触发方式 ──
             Text(
                 "截图识别触发方式",
                 style = MaterialTheme.typography.titleSmall,
@@ -62,7 +86,24 @@ fun SettingsScreen(
                 title = "悬浮球按钮",
                 subtitle = "显示悬浮球快捷按钮，点击触发截图识别",
                 checked = settings.floatingButtonEnabled,
-                onCheckedChange = { viewModel.updateSetting { copy(floatingButtonEnabled = it) } },
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        if (!Settings.canDrawOverlays(context)) {
+                            Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        } else {
+                            FloatingButtonService.start(context)
+                            viewModel.updateSetting { copy(floatingButtonEnabled = true) }
+                        }
+                    } else {
+                        FloatingButtonService.stop(context)
+                        viewModel.updateSetting { copy(floatingButtonEnabled = false) }
+                    }
+                },
                 icon = Icons.Default.TouchApp
             )
 
@@ -70,7 +111,14 @@ fun SettingsScreen(
                 title = "截图自动识别",
                 subtitle = "截屏后自动识别账单并录入",
                 checked = settings.autoScreenshotOcr,
-                onCheckedChange = { viewModel.updateSetting { copy(autoScreenshotOcr = it) } },
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        ScreenshotMonitorService.start(context)
+                    } else {
+                        ScreenshotMonitorService.stop(context)
+                    }
+                    viewModel.updateSetting { copy(autoScreenshotOcr = enabled) }
+                },
                 icon = Icons.Default.Screenshot
             )
 
@@ -85,10 +133,8 @@ fun SettingsScreen(
             if (settings.backTapEnabled) {
                 TextButton(
                     onClick = {
-                        // 跳转到系统 Quick Tap 设置
                         try {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            context.startActivity(intent)
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                         } catch (_: Exception) {}
                     },
                     modifier = Modifier.padding(start = 56.dp)
@@ -99,7 +145,7 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // 自动记账
+            // ── 自动记账 ──
             Text(
                 "自动记账",
                 style = MaterialTheme.typography.titleSmall,
@@ -161,7 +207,7 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // 数据管理
+            // ── 数据管理 ──
             Text(
                 "数据管理",
                 style = MaterialTheme.typography.titleSmall,
@@ -199,7 +245,7 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // 关于
+            // ── 关于 ──
             Text(
                 "关于",
                 style = MaterialTheme.typography.titleSmall,

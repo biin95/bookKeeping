@@ -1,5 +1,6 @@
 package com.biin95.bookkeeping.ui.home
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.biin95.bookkeeping.data.local.entity.Transaction
@@ -14,6 +15,10 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val repository: TransactionRepository
 ) : ViewModel() {
+
+    init {
+        Log.d("BookKeeping", "HomeViewModel 初始化")
+    }
 
     private val _currentTimePeriod = MutableStateFlow(TimePeriod.MONTH)
     val currentTimePeriod: StateFlow<TimePeriod> = _currentTimePeriod.asStateFlow()

@@ -80,5 +80,11 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
+        <!-- 悬浮球服务 -->
+        <service
+            android:name=".service.FloatingButtonService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
     </application>
 </manifest>

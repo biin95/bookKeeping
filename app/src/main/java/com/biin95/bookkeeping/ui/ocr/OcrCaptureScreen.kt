@@ -139,6 +139,87 @@ fun OcrCaptureScreen(
                     )
                 }
 
+                is OcrUiState.MultiResult -> {
+                    // 多笔交易头部提示
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "识别到 ${state.results.size} 笔交易",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                "${state.currentIndex + 1} / ${state.results.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 翻页按钮
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.previousResult() },
+                            enabled = state.currentIndex > 0
+                        ) {
+                            Icon(Icons.Default.ChevronLeft, contentDescription = null)
+                            Text("上一笔")
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.nextResult() },
+                            enabled = state.currentIndex < state.results.size - 1
+                        ) {
+                            Text("下一笔")
+                            Icon(Icons.Default.ChevronRight, contentDescription = null)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 当前交易编辑
+                    OcrResultContent(
+                        result = state.currentResult,
+                        amount = viewModel.editableAmount.collectAsStateWithLifecycle().value,
+                        merchant = viewModel.editableMerchant.collectAsStateWithLifecycle().value,
+                        category = viewModel.editableCategory.collectAsStateWithLifecycle().value,
+                        isIncome = viewModel.isIncome.collectAsStateWithLifecycle().value,
+                        onAmountChange = { viewModel.setAmount(it) },
+                        onMerchantChange = { viewModel.setMerchant(it) },
+                        onCategoryChange = { viewModel.setCategory(it) },
+                        onIncomeChange = { viewModel.setIsIncome(it) },
+                        onSave = { viewModel.saveTransaction() },
+                        onRetry = { viewModel.reset() },
+                        extraButtons = {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = { viewModel.saveAllTransactions() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.DoneAll, contentDescription = null)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("一键保存全部 ${state.results.size} 笔")
+                            }
+                        }
+                    )
+                }
+
                 is OcrUiState.Error -> {
                     Spacer(modifier = Modifier.height(60.dp))
                     Icon(
@@ -174,7 +255,8 @@ fun OcrResultContent(
     onCategoryChange: (String) -> Unit,
     onIncomeChange: (Boolean) -> Unit,
     onSave: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    extraButtons: @Composable (() -> Unit)? = null
 ) {
     Text(
         "识别结果",
@@ -271,6 +353,9 @@ fun OcrResultContent(
 
     Spacer(modifier = Modifier.height(24.dp))
 
+    // 额外按钮（一键保存全部等）
+    extraButtons?.invoke()
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -296,5 +381,10 @@ sealed class OcrUiState {
     data object Idle : OcrUiState()
     data object Processing : OcrUiState()
     data class Result(val result: OcrResult) : OcrUiState()
+    data class MultiResult(
+        val results: List<OcrResult>,
+        val currentIndex: Int,
+        val currentResult: OcrResult
+    ) : OcrUiState()
     data class Error(val message: String) : OcrUiState()
 }

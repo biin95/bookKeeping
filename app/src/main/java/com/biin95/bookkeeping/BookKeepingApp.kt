@@ -3,6 +3,7 @@ package com.biin95.bookkeeping
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
@@ -10,7 +11,21 @@ class BookKeepingApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannels()
+        Log.d("BookKeeping", "Application.onCreate 开始")
+
+        // 设置全局未捕获异常处理器
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e("BookKeeping", "未捕获异常: ${throwable.message}", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
+        try {
+            createNotificationChannels()
+            Log.d("BookKeeping", "Application.onCreate 完成")
+        } catch (e: Exception) {
+            Log.e("BookKeeping", "Application.onCreate 异常", e)
+        }
     }
 
     private fun createNotificationChannels() {
