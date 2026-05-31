@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">bookKeeping</string>
+    <string name="accessibility_service_desc">bookKeeping 无障碍服务，用于自动读取支付APP账单信息</string>
+    <string name="notification_channel_name">bookKeeping 服务</string>
+    <string name="notification_channel_desc">bookKeeping 后台服务通知</string>
+</resources>
