@@ -18,6 +18,7 @@ import com.biin95.bookkeeping.ui.navigation.NavGraph
 import com.biin95.bookkeeping.ui.navigation.Screen
 import com.biin95.bookkeeping.ui.theme.BookKeepingTheme
 import dagger.hilt.android.AndroidEntryPoint
+import java.net.URLEncoder
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -30,14 +31,18 @@ class MainActivity : ComponentActivity() {
             enableEdgeToEdge()
             Log.d("BookKeeping", "enableEdgeToEdge 完成")
 
-            val startOcr = intent?.action == "com.biin95.bookkeeping.ACTION_OCR_CAPTURE"
-            Log.d("BookKeeping", "startOcr=$startOcr")
+            val action = intent?.action
+            val startOcr = action == "com.biin95.bookkeeping.ACTION_OCR_CAPTURE"
+            val screenshotPath = if (action == "ACTION_OCR_CONFIRM") {
+                intent?.getStringExtra("screenshot_path")
+            } else null
+            Log.d("BookKeeping", "startOcr=$startOcr, screenshotPath=$screenshotPath")
 
             setContent {
                 Log.d("BookKeeping", "setContent 开始")
                 BookKeepingTheme {
                     Log.d("BookKeeping", "BookKeepingTheme 开始")
-                    MainApp(startOcr = startOcr)
+                    MainApp(startOcr = startOcr, screenshotPath = screenshotPath)
                 }
             }
             Log.d("BookKeeping", "MainActivity.onCreate 完成")
@@ -49,15 +54,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == "com.biin95.bookkeeping.ACTION_OCR_CAPTURE") {
-            // 从 Quick Tap 触发，导航到 OCR 页面
+        setIntent(intent)
+        if (intent.action == "ACTION_OCR_CONFIRM") {
+            // 截图通知跳转，重新创建以导航到 OCR 页面
+            recreate()
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainApp(startOcr: Boolean) {
+fun MainApp(startOcr: Boolean, screenshotPath: String? = null) {
     Log.d("BookKeeping", "MainApp Composable 开始")
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -66,10 +73,13 @@ fun MainApp(startOcr: Boolean) {
     val bottomBarScreens = listOf(Screen.Home.route, Screen.Statistics.route, Screen.Settings.route)
     val showBottomBar = currentRoute in bottomBarScreens
 
-    LaunchedEffect(startOcr) {
-        Log.d("BookKeeping", "LaunchedEffect startOcr=$startOcr")
-        if (startOcr) {
-            navController.navigate(Screen.OcrCapture.route)
+    LaunchedEffect(startOcr, screenshotPath) {
+        Log.d("BookKeeping", "LaunchedEffect startOcr=$startOcr, screenshotPath=$screenshotPath")
+        if (startOcr || !screenshotPath.isNullOrBlank()) {
+            val encodedPath = if (!screenshotPath.isNullOrBlank()) {
+                URLEncoder.encode(screenshotPath, "UTF-8")
+            } else null
+            navController.navigate(Screen.OcrCapture.createRoute(encodedPath))
         }
     }
 

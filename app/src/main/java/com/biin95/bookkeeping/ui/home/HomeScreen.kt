@@ -39,7 +39,7 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("bookKeeping") },
                 actions = {
-                    IconButton(onClick = { navController.navigate(Screen.OcrCapture.route) }) {
+                    IconButton(onClick = { navController.navigate(Screen.OcrCapture.createRoute()) }) {
                         Icon(Icons.Default.CameraAlt, contentDescription = "截图识别")
                     }
                 }

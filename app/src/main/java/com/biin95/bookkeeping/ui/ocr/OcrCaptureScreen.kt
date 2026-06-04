@@ -25,7 +25,8 @@ import com.biin95.bookkeeping.ui.navigation.Screen
 @Composable
 fun OcrCaptureScreen(
     navController: NavController,
-    viewModel: OcrViewModel = hiltViewModel()
+    viewModel: OcrViewModel = hiltViewModel(),
+    screenshotPath: String? = null
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -35,6 +36,14 @@ fun OcrCaptureScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { viewModel.recognizeImage(context, it) }
+    }
+
+    // 如果从截图通知跳转过来，自动加载截图
+    LaunchedEffect(screenshotPath) {
+        if (!screenshotPath.isNullOrBlank()) {
+            val uri = Uri.parse("file://$screenshotPath")
+            viewModel.recognizeImage(context, uri)
+        }
     }
 
     LaunchedEffect(saveSuccess) {

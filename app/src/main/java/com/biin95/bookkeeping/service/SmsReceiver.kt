@@ -32,9 +32,16 @@ class SmsReceiver : BroadcastReceiver() {
             "余额", "信用卡", "储蓄卡"
         )
 
+        // 要求至少有货币符号、"元"字、或金额关键词之一，避免纯数字误匹配
         private val AMOUNT_PATTERN = Pattern.compile(
-            "(?:人民币|CNY|RMB)?\\s*[¥￥]?\\s*(\\d+[,.]?\\d*\\.?\\d{0,2})\\s*元?"
+            "(?:人民币|CNY|RMB)\\s*[¥￥]?\\s*(\\d+[,.]?\\d*\\.?\\d{0,2})" +
+            "|[¥￥]\\s*(\\d+[,.]?\\d*\\.?\\d{0,2})" +
+            "|(?:金额|扣款|消费|支出|收款|到账|转入|转出)\\s*[¥￥]?\\s*(\\d+[,.]?\\d*\\.?\\d{0,2})" +
+            "|(\\d+\\.\\d{2})\\s*元"
         )
+
+        private const val MIN_AMOUNT = 0.01
+        private const val MAX_AMOUNT = 99999.0
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -96,8 +103,16 @@ class SmsReceiver : BroadcastReceiver() {
     private fun extractAmount(text: String): Double? {
         val matcher = AMOUNT_PATTERN.matcher(text)
         if (matcher.find()) {
-            val amountStr = matcher.group(1)?.replace(",", "")
-            return amountStr?.toDoubleOrNull()
+            for (i in 1..matcher.groupCount()) {
+                val value = matcher.group(i) ?: continue
+                val amountStr = value.replace(",", "")
+                val amount = amountStr.toDoubleOrNull() ?: continue
+                // 金额合理性过滤
+                if (amount < MIN_AMOUNT || amount > MAX_AMOUNT) continue
+                // 1900-2100范围的4位纯整数大概率是年份
+                if (!amountStr.contains(".") && amountStr.length == 4 && amount in 1900.0..2100.0) continue
+                return amount
+            }
         }
         return null
     }

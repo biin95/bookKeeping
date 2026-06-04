@@ -36,8 +36,12 @@ class NotificationCaptureService : NotificationListenerService() {
             "com.unionpay"                         // 云闪付
         )
 
-        // 金额正则
+        // 金额正则（要求有明确的货币符号/单位/支付关键词）
         private val AMOUNT_PATTERN = Pattern.compile("[¥￥]\\s*(\\d+\\.?\\d{0,2})|(\\d+\\.\\d{2})\\s*元|(?:支付|付款|扣款|消费)\\s*(\\d+\\.?\\d{0,2})")
+
+        // 金额合理性
+        private const val MIN_AMOUNT = 0.01
+        private const val MAX_AMOUNT = 99999.0
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -98,7 +102,12 @@ class NotificationCaptureService : NotificationListenerService() {
             for (i in 1..matcher.groupCount()) {
                 val value = matcher.group(i)
                 if (value != null) {
-                    return value.toDoubleOrNull()
+                    val amount = value.toDoubleOrNull() ?: continue
+                    // 金额合理性过滤
+                    if (amount < MIN_AMOUNT || amount > MAX_AMOUNT) continue
+                    // 1900-2100范围的4位纯整数大概率是年份
+                    if (!value.contains(".") && value.length == 4 && amount in 1900.0..2100.0) continue
+                    return amount
                 }
             }
         }

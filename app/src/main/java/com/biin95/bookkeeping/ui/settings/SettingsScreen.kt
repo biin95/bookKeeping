@@ -245,6 +245,23 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // ── 调试 ──
+            Text(
+                "调试",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            )
+
+            SettingsClickable(
+                title = "运行日志",
+                subtitle = "查看截图识别等操作的详细日志",
+                onClick = { navController.navigate(Screen.LogViewer.route) },
+                icon = Icons.Default.BugReport
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             // ── 关于 ──
             Text(
                 "关于",

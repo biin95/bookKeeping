@@ -4,7 +4,6 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
@@ -17,21 +16,21 @@ import android.util.Log
 import com.biin95.bookkeeping.BookKeepingApp
 import com.biin95.bookkeeping.MainActivity
 import com.biin95.bookkeeping.R
-import com.biin95.bookkeeping.data.local.entity.Transaction
-import com.biin95.bookkeeping.data.repository.TransactionRepository
 import com.biin95.bookkeeping.ocr.OcrEngine
+import com.biin95.bookkeeping.util.AppLog
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import android.app.NotificationChannel
+import android.app.NotificationManager.IMPORTANCE_HIGH
 
 @AndroidEntryPoint
 class ScreenshotMonitorService : Service() {
 
     @Inject lateinit var ocrEngine: OcrEngine
-    @Inject lateinit var repository: TransactionRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var screenshotObserver: ContentObserver? = null
@@ -85,18 +84,22 @@ class ScreenshotMonitorService : Service() {
         screenshotObserver = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
+                AppLog.d(TAG, "ContentObserver.onChange triggered, uri=$uri, selfChange=$selfChange")
                 uri ?: return
 
                 // 防抖：2秒内不重复处理
                 val now = System.currentTimeMillis()
-                if (now - lastScreenshotTime < 2000) return
+                if (now - lastScreenshotTime < 2000) {
+                    AppLog.d(TAG, "Debounced, skipping")
+                    return
+                }
                 lastScreenshotTime = now
 
                 scope.launch {
                     try {
                         handleNewScreenshot(uri)
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error processing screenshot", e)
+                        AppLog.e(TAG, "Error processing screenshot", e)
                     }
                 }
             }
@@ -108,7 +111,7 @@ class ScreenshotMonitorService : Service() {
             screenshotObserver!!
         )
 
-        Log.d(TAG, "Screenshot monitoring started")
+        AppLog.d(TAG, "Screenshot monitoring started")
     }
 
     private fun stopMonitoring() {
@@ -116,50 +119,80 @@ class ScreenshotMonitorService : Service() {
             contentResolver.unregisterContentObserver(it)
         }
         screenshotObserver = null
-        Log.d(TAG, "Screenshot monitoring stopped")
+        AppLog.d(TAG, "Screenshot monitoring stopped")
     }
 
     private suspend fun handleNewScreenshot(uri: Uri) {
-        // 查询是否为截图文件
+        AppLog.d(TAG, "handleNewScreenshot called, uri=$uri")
+
+        // 等待文件写入完成（MediaStore 插入时文件可能还在写）
+        kotlinx.coroutines.delay(1000)
+
+        // 查询是否为截图文件，过滤掉 pending 和 trashed 状态
         val projection = arrayOf(
             MediaStore.Images.Media.DATA,
-            MediaStore.Images.Media.DATE_ADDED
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.IS_PENDING,
+            MediaStore.Images.Media.IS_TRASHED
         )
 
-        contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val path = cursor.getString(
-                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-                ) ?: return
+        // 只查询非 pending、非 trashed 的文件
+        val selection = "${MediaStore.Images.Media.IS_PENDING} = 0 AND ${MediaStore.Images.Media.IS_TRASHED} = 0"
 
-                // 检查是否为截图目录
-                if (!isScreenshotPath(path)) return
+        contentResolver.query(uri, projection, selection, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) {
+                AppLog.d(TAG, "Cursor is empty or file is pending/trashed")
+                return
+            }
 
-                Log.d(TAG, "New screenshot detected: $path")
+            val path = cursor.getString(
+                cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+            )
+            val displayName = cursor.getString(
+                cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+            )
+            val isPending = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.IS_PENDING))
+            AppLog.d(TAG, "File detected: path=$path, displayName=$displayName, isPending=$isPending")
 
-                // 使用 OCR 识别
-                val screenshotUri = Uri.parse("file://$path")
-                val result = ocrEngine.recognizeFromUri(this, screenshotUri)
+            if (path == null && displayName == null) {
+                AppLog.d(TAG, "Both path and displayName are null, skipping")
+                return
+            }
 
-                if (result.amount != null && result.amount > 0) {
-                    val transaction = Transaction(
-                        amount = -result.amount,
-                        category = guessCategory(result.merchant ?: ""),
-                        merchant = result.merchant ?: "",
-                        description = result.items.joinToString(", "),
-                        paymentMethod = result.paymentMethod ?: "",
-                        source = "screenshot",
-                        isIncome = false,
-                        screenshotPath = path,
-                        rawText = result.rawText
-                    )
+            // 用路径或文件名判断是否为截图
+            val isScreenshot = isScreenshotPath(path ?: "") || isScreenshotPath(displayName ?: "")
+            if (!isScreenshot) {
+                AppLog.d(TAG, "Not a screenshot, skipping. path=$path, displayName=$displayName")
+                return
+            }
 
-                    repository.insert(transaction)
-                    Log.d(TAG, "Auto-saved screenshot transaction: $transaction")
+            AppLog.d(TAG, "Screenshot confirmed, starting OCR...")
 
-                    // 发送通知
-                    sendCaptureNotification(transaction)
+            try {
+                // 直接用 content URI（MediaStore URI），不要转 file://
+                val text = ocrEngine.recognizeTextFromUri(this, uri)
+                AppLog.d(TAG, "OCR text length: ${text.length}")
+                AppLog.d(TAG, "OCR full text:\n$text")
+
+                val results = ocrEngine.parseMultipleTransactions(text)
+                AppLog.d(TAG, "parseMultipleTransactions returned ${results.size} result(s)")
+                for ((i, r) in results.withIndex()) {
+                    AppLog.d(TAG, "  result[$i]: amount=${r.amount}, merchant=${r.merchant}")
                 }
+
+                val validResults = results.filter { it.amount != null && it.amount > 0 }
+
+                if (validResults.isNotEmpty()) {
+                    AppLog.d(TAG, "Sending notification for ${validResults.size} transaction(s)")
+                    sendConfirmNotification(validResults, path ?: displayName ?: "screenshot")
+                } else {
+                    AppLog.d(TAG, "No valid amount found in OCR text")
+                    sendHintNotification("截图已识别，但未找到金额", text.take(100))
+                }
+            } catch (e: Exception) {
+                AppLog.e(TAG, "OCR failed", e)
+                sendHintNotification("截图识别失败", e.message ?: "未知错误")
             }
         }
     }
@@ -172,16 +205,34 @@ class ScreenshotMonitorService : Service() {
                 lower.contains("screen_capture")
     }
 
-    private fun sendCaptureNotification(transaction: Transaction) {
-        val intent = Intent(this, MainActivity::class.java)
+    private fun sendConfirmNotification(results: List<com.biin95.bookkeeping.ocr.OcrResult>, screenshotPath: String) {
+        // 跳转到 OCR 编辑页面，传递截图路径
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = "ACTION_OCR_CONFIRM"
+            putExtra("screenshot_path", screenshotPath)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val title: String
+        val content: String
+        if (results.size == 1) {
+            val r = results[0]
+            title = "识别到账单，点击确认"
+            val merchantPart = if (!r.merchant.isNullOrBlank()) "${r.merchant} " else ""
+            content = "${merchantPart}¥%.2f".format(r.amount!!)
+        } else {
+            title = "识别到 ${results.size} 笔账单，点击确认"
+            val total = results.sumOf { it.amount ?: 0.0 }
+            content = "合计 ¥%.2f".format(total)
+        }
+
         val notification = Notification.Builder(this, BookKeepingApp.CHANNEL_CAPTURE)
-            .setContentTitle("已识别账单")
-            .setContentText("${transaction.merchant} ¥%.2f".format(kotlin.math.abs(transaction.amount)))
+            .setContentTitle(title)
+            .setContentText(content)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -191,18 +242,25 @@ class ScreenshotMonitorService : Service() {
         manager.notify(System.currentTimeMillis().toInt(), notification)
     }
 
-    private fun guessCategory(merchant: String): String {
-        val lower = merchant.lowercase()
-        return when {
-            lower.containsAny("餐", "饭", "食", "外卖", "美团", "饿了么") -> "餐饮"
-            lower.containsAny("滴滴", "打车", "地铁", "公交") -> "交通"
-            lower.containsAny("淘宝", "京东", "拼多多", "超市") -> "购物"
-            lower.containsAny("电影", "游戏") -> "娱乐"
-            else -> "其他"
+    private fun sendHintNotification(title: String, detail: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = Notification.Builder(this, BookKeepingApp.CHANNEL_CAPTURE)
+            .setContentTitle(title)
+            .setContentText(detail)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(System.currentTimeMillis().toInt(), notification)
     }
 
-    private fun String.containsAny(vararg keywords: String): Boolean {
-        return keywords.any { this.contains(it) }
-    }
 }
