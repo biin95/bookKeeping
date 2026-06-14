@@ -20,7 +20,7 @@ class NlpParser @Inject constructor() {
 
     // 金额正则：支持 9.9、9.90、9、10、0.5 等格式
     private val amountPattern = Pattern.compile(
-        "(\d+\.?\d{0,2})"
+        """(\d+\.?\d{0,2})"""
     )
 
     // 收入关键词（出现在金额之前或之后）
@@ -68,11 +68,11 @@ class NlpParser @Inject constructor() {
     private fun extractAmount(text: String): Double? {
         // 优先级1: "花了\d+\.?\d{0,2}元/块钱"
         val spendPatterns = listOf(
-            Pattern.compile("(?:花了|付了|支付|付款|消费|花费|用了)(\d+\.?\d{0,2})(?:元|块|块钱)?"),
-            Pattern.compile("(\d+\.?\d{0,2})(?:元|块|块钱)"),
-            Pattern.compile("(?:收入|入账|收到|赚了)(\d+\.?\d{0,2})(?:元|块|块钱)?"),
-            Pattern.compile("(\d+\.\d{1,2})"),
-            Pattern.compile("(\d+)")
+            Pattern.compile("""(?:花了|付了|支付|付款|消费|花费|用了)(\d+\.?\d{0,2})(?:元|块|块钱)?"""),
+            Pattern.compile("""(\d+\.?\d{0,2})(?:元|块|块钱)"""),
+            Pattern.compile("""(?:收入|入账|收到|赚了)(\d+\.?\d{0,2})(?:元|块|块钱)?"""),
+            Pattern.compile("""(\d+\.\d{1,2})"""),
+            Pattern.compile("""(\d+)""")
         )
 
         for (pattern in spendPatterns) {

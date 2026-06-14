@@ -71,8 +71,7 @@ fun NlpInputScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        "示例：“美团买了杯冰美式花了9.9”
-“滴滴打车25.5” “发工资12000”",
+                        "示例：美团买了杯冰美式花了9.9 / 滴滴打车25.5 / 发工资12000",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
