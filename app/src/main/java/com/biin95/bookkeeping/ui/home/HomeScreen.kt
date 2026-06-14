@@ -56,8 +56,8 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("bookKeeping") },
                 actions = {
-                    IconButton(onClick = { navController.navigate(Screen.OcrCapture.createRoute()) }) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = "截图识别")
+                    IconButton(onClick = { navController.navigate(Screen.NlpInput.route) }) {
+                        Icon(Icons.Default.EditNote, contentDescription = "语音记账")
                     }
                 }
             )
@@ -108,7 +108,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "点击 + 开始记账，或使用截图识别",
+                            "点击 + 开始记账，或使用语音记账",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )

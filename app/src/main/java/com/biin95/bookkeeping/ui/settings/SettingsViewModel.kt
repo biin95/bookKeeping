@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.biin95.bookkeeping.data.backup.ExportImportHelper
 import com.biin95.bookkeeping.data.local.entity.Transaction
 import com.biin95.bookkeeping.data.repository.TransactionRepository
 import com.google.gson.Gson
@@ -25,12 +26,8 @@ import javax.inject.Inject
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 data class AppSettings(
-    val floatingButtonEnabled: Boolean = false,
-    val autoScreenshotOcr: Boolean = false,
-    val backTapEnabled: Boolean = false,
-    val notificationCaptureEnabled: Boolean = false,
-    val smsCaptureEnabled: Boolean = false,
-    val accessibilityEnabled: Boolean = false
+    val autoBackupEnabled: Boolean = true,
+    val darkMode: Boolean = false
 )
 
 @HiltViewModel
@@ -46,27 +43,17 @@ class SettingsViewModel @Inject constructor(
 
     private val gson = Gson()
 
-    // DataStore keys
     companion object {
-        val KEY_FLOATING_BUTTON = booleanPreferencesKey("floating_button_enabled")
-        val KEY_AUTO_SCREENSHOT_OCR = booleanPreferencesKey("auto_screenshot_ocr")
-        val KEY_BACK_TAP = booleanPreferencesKey("back_tap_enabled")
-        val KEY_NOTIFICATION_CAPTURE = booleanPreferencesKey("notification_capture_enabled")
-        val KEY_SMS_CAPTURE = booleanPreferencesKey("sms_capture_enabled")
-        val KEY_ACCESSIBILITY = booleanPreferencesKey("accessibility_enabled")
+        val KEY_AUTO_BACKUP = booleanPreferencesKey("auto_backup_enabled")
+        val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
     }
 
     init {
-        // 从 DataStore 读取设置
         viewModelScope.launch {
             dataStore.data.first().let { prefs ->
                 _settings.value = AppSettings(
-                    floatingButtonEnabled = prefs[KEY_FLOATING_BUTTON] ?: false,
-                    autoScreenshotOcr = prefs[KEY_AUTO_SCREENSHOT_OCR] ?: false,
-                    backTapEnabled = prefs[KEY_BACK_TAP] ?: false,
-                    notificationCaptureEnabled = prefs[KEY_NOTIFICATION_CAPTURE] ?: false,
-                    smsCaptureEnabled = prefs[KEY_SMS_CAPTURE] ?: false,
-                    accessibilityEnabled = prefs[KEY_ACCESSIBILITY] ?: false
+                    autoBackupEnabled = prefs[KEY_AUTO_BACKUP] ?: true,
+                    darkMode = prefs[KEY_DARK_MODE] ?: false
                 )
             }
         }
@@ -75,24 +62,19 @@ class SettingsViewModel @Inject constructor(
     fun updateSetting(transform: AppSettings.() -> AppSettings) {
         val newSettings = _settings.value.transform()
         _settings.value = newSettings
-        // 保存到 DataStore
         viewModelScope.launch {
             dataStore.edit { prefs ->
-                prefs[KEY_FLOATING_BUTTON] = newSettings.floatingButtonEnabled
-                prefs[KEY_AUTO_SCREENSHOT_OCR] = newSettings.autoScreenshotOcr
-                prefs[KEY_BACK_TAP] = newSettings.backTapEnabled
-                prefs[KEY_NOTIFICATION_CAPTURE] = newSettings.notificationCaptureEnabled
-                prefs[KEY_SMS_CAPTURE] = newSettings.smsCaptureEnabled
-                prefs[KEY_ACCESSIBILITY] = newSettings.accessibilityEnabled
+                prefs[KEY_AUTO_BACKUP] = newSettings.autoBackupEnabled
+                prefs[KEY_DARK_MODE] = newSettings.darkMode
             }
         }
     }
 
-    fun exportData(context: Context) {
+    fun exportData() {
         viewModelScope.launch {
             try {
                 val transactions = repository.getAllForExport()
-                val json = gson.toJson(transactions)
+                val json = ExportImportHelper.exportToJson(transactions)
                 val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
                 val fileName = "bookKeeping_${dateFormat.format(Date())}.json"
 
@@ -107,7 +89,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun importData(context: Context, uri: Uri) {
+    fun importData(uri: Uri) {
         viewModelScope.launch {
             try {
                 val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch

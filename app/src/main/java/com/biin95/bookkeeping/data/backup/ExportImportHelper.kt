@@ -1,4 +1,4 @@
-package com.biin95.bookkeeping.ocr
+package com.biin95.bookkeeping.data.backup
 
 import com.biin95.bookkeeping.data.local.entity.Transaction
 import com.google.gson.Gson

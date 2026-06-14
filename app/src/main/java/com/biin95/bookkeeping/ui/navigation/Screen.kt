@@ -12,11 +12,5 @@ sealed class Screen(val route: String) {
     }
     data object Statistics : Screen("statistics")
     data object Settings : Screen("settings")
-    data object Permissions : Screen("permissions")
-    data object OcrCapture : Screen("ocr_capture?screenshotPath={screenshotPath}") {
-        fun createRoute(screenshotPath: String? = null): String =
-            if (screenshotPath != null) "ocr_capture?screenshotPath=$screenshotPath"
-            else "ocr_capture"
-    }
-    data object LogViewer : Screen("log_viewer")
+    data object NlpInput : Screen("nlp_input")
 }
