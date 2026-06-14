@@ -3,11 +3,23 @@ package com.biin95.bookkeeping
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.provider.Settings
 import android.util.Log
+import com.biin95.bookkeeping.service.FloatingButtonService
+import com.biin95.bookkeeping.service.ScreenshotMonitorService
+import com.biin95.bookkeeping.ui.settings.SettingsViewModel
+import com.biin95.bookkeeping.ui.settings.settingsDataStore
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class BookKeepingApp : Application() {
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -22,9 +34,33 @@ class BookKeepingApp : Application() {
 
         try {
             createNotificationChannels()
+            restoreServices()
             Log.d("BookKeeping", "Application.onCreate 完成")
         } catch (e: Exception) {
             Log.e("BookKeeping", "Application.onCreate 异常", e)
+        }
+    }
+
+    /** 从 DataStore 读取设置，恢复已开启的服务（悬浮球、截图监听） */
+    private fun restoreServices() {
+        appScope.launch {
+            try {
+                val prefs = settingsDataStore.data.first()
+                val floatingEnabled = prefs[SettingsViewModel.KEY_FLOATING_BUTTON] ?: false
+                val screenshotOcrEnabled = prefs[SettingsViewModel.KEY_AUTO_SCREENSHOT_OCR] ?: false
+                Log.d("BookKeeping", "restoreServices: floating=$floatingEnabled, screenshotOcr=$screenshotOcrEnabled")
+
+                if (floatingEnabled && Settings.canDrawOverlays(this@BookKeepingApp)) {
+                    FloatingButtonService.start(this@BookKeepingApp)
+                    Log.d("BookKeeping", "FloatingButtonService 已恢复启动")
+                }
+                if (screenshotOcrEnabled) {
+                    ScreenshotMonitorService.start(this@BookKeepingApp)
+                    Log.d("BookKeeping", "ScreenshotMonitorService 已恢复启动")
+                }
+            } catch (e: Exception) {
+                Log.e("BookKeeping", "restoreServices 失败", e)
+            }
         }
     }
 

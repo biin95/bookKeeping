@@ -12,7 +12,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
-import android.util.Log
 import com.biin95.bookkeeping.BookKeepingApp
 import com.biin95.bookkeeping.MainActivity
 import com.biin95.bookkeeping.R
@@ -20,12 +19,13 @@ import com.biin95.bookkeeping.ocr.OcrEngine
 import com.biin95.bookkeeping.util.AppLog
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
-import android.app.NotificationChannel
-import android.app.NotificationManager.IMPORTANCE_HIGH
 
 @AndroidEntryPoint
 class ScreenshotMonitorService : Service() {
@@ -34,7 +34,8 @@ class ScreenshotMonitorService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var screenshotObserver: ContentObserver? = null
-    private var lastScreenshotTime = 0L
+    // 按 URI 跟踪活跃的处理任务，同一 URI 新事件到达时取消旧任务
+    private val activeJobs = ConcurrentHashMap<String, Job>()
 
     companion object {
         private const val TAG = "ScreenshotMonitor"
@@ -87,21 +88,35 @@ class ScreenshotMonitorService : Service() {
                 AppLog.d(TAG, "ContentObserver.onChange triggered, uri=$uri, selfChange=$selfChange")
                 uri ?: return
 
-                // 防抖：2秒内不重复处理
-                val now = System.currentTimeMillis()
-                if (now - lastScreenshotTime < 2000) {
-                    AppLog.d(TAG, "Debounced, skipping")
-                    return
-                }
-                lastScreenshotTime = now
+                val uriKey = uri.toString()
 
-                scope.launch {
+                // 同一 URI 的新事件到达（如 pending→ready），取消旧的重试循环
+                activeJobs[uriKey]?.let { oldSupervisor ->
+                    AppLog.d(TAG, "Cancelling previous job for $uriKey")
+                    oldSupervisor.cancel()
+                }
+
+                // 用 SupervisorJob 先存入 map 再启动协程，解决取消竞态
+                val supervisor = SupervisorJob()
+                activeJobs[uriKey] = supervisor
+                val childScope = CoroutineScope(supervisor + Dispatchers.IO)
+                val job = childScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         handleNewScreenshot(uri)
+                    } catch (_: kotlinx.coroutines.CancellationException) {
+                        // 不要吞掉 CancellationException，让它自然传播
+                        throw kotlinx.coroutines.CancellationException("Processing cancelled for $uriKey")
                     } catch (e: Exception) {
                         AppLog.e(TAG, "Error processing screenshot", e)
                     }
                 }
+                // 仅当自己仍是活跃任务时才清理，避免误删新任务
+                job.invokeOnCompletion {
+                    activeJobs.compute(uriKey) { _, current ->
+                        if (current === supervisor) null else current
+                    }
+                }
+                job.start()
             }
         }
 
@@ -125,10 +140,6 @@ class ScreenshotMonitorService : Service() {
     private suspend fun handleNewScreenshot(uri: Uri) {
         AppLog.d(TAG, "handleNewScreenshot called, uri=$uri")
 
-        // 等待文件写入完成（MediaStore 插入时文件可能还在写）
-        kotlinx.coroutines.delay(1000)
-
-        // 查询是否为截图文件，过滤掉 pending 和 trashed 状态
         val projection = arrayOf(
             MediaStore.Images.Media.DATA,
             MediaStore.Images.Media.DATE_ADDED,
@@ -137,63 +148,86 @@ class ScreenshotMonitorService : Service() {
             MediaStore.Images.Media.IS_TRASHED
         )
 
-        // 只查询非 pending、非 trashed 的文件
-        val selection = "${MediaStore.Images.Media.IS_PENDING} = 0 AND ${MediaStore.Images.Media.IS_TRASHED} = 0"
+        // 重试机制：等待 MediaStore 文件从 pending 变为可用
+        // 首次截图时系统写入较慢，IS_PENDING=1 会导致查询为空
+        val maxRetries = 5
+        val retryDelays = longArrayOf(500, 1000, 2000, 3000, 3000) // 递增等待，共约 9.5 秒
+        var path: String? = null
+        var displayName: String? = null
+        var resolved = false
 
-        contentResolver.query(uri, projection, selection, null, null)?.use { cursor ->
-            if (!cursor.moveToFirst()) {
-                AppLog.d(TAG, "Cursor is empty or file is pending/trashed")
-                return
+        for (attempt in 0 until maxRetries) {
+            if (attempt > 0) {
+                val waitMs = retryDelays[attempt]
+                AppLog.d(TAG, "Retry #$attempt after ${waitMs}ms...")
+                kotlinx.coroutines.delay(waitMs)
+            } else {
+                // 首次尝试前短暂等待，让写入开始
+                kotlinx.coroutines.delay(500)
             }
 
-            val path = cursor.getString(
-                cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-            )
-            val displayName = cursor.getString(
-                cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-            )
-            val isPending = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.IS_PENDING))
-            AppLog.d(TAG, "File detected: path=$path, displayName=$displayName, isPending=$isPending")
-
-            if (path == null && displayName == null) {
-                AppLog.d(TAG, "Both path and displayName are null, skipping")
-                return
-            }
-
-            // 用路径或文件名判断是否为截图
-            val isScreenshot = isScreenshotPath(path ?: "") || isScreenshotPath(displayName ?: "")
-            if (!isScreenshot) {
-                AppLog.d(TAG, "Not a screenshot, skipping. path=$path, displayName=$displayName")
-                return
-            }
-
-            AppLog.d(TAG, "Screenshot confirmed, starting OCR...")
-
-            try {
-                // 直接用 content URI（MediaStore URI），不要转 file://
-                val text = ocrEngine.recognizeTextFromUri(this, uri)
-                AppLog.d(TAG, "OCR text length: ${text.length}")
-                AppLog.d(TAG, "OCR full text:\n$text")
-
-                val results = ocrEngine.parseMultipleTransactions(text)
-                AppLog.d(TAG, "parseMultipleTransactions returned ${results.size} result(s)")
-                for ((i, r) in results.withIndex()) {
-                    AppLog.d(TAG, "  result[$i]: amount=${r.amount}, merchant=${r.merchant}")
+            // 先不过滤 IS_PENDING，看看文件是否存在
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) {
+                    AppLog.d(TAG, "Attempt $attempt: cursor empty, file not found yet")
+                    return@use
                 }
 
-                val validResults = results.filter { it.amount != null && it.amount > 0 }
+                val isPending = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.IS_PENDING))
+                val isTrashed = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.IS_TRASHED))
+                path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
+                displayName = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
 
-                if (validResults.isNotEmpty()) {
-                    AppLog.d(TAG, "Sending notification for ${validResults.size} transaction(s)")
-                    sendConfirmNotification(validResults, path ?: displayName ?: "screenshot")
+                AppLog.d(TAG, "Attempt $attempt: path=$path, displayName=$displayName, isPending=$isPending, isTrashed=$isTrashed")
+
+                if (isPending == 0 && isTrashed == 0) {
+                    resolved = true
                 } else {
-                    AppLog.d(TAG, "No valid amount found in OCR text")
-                    sendHintNotification("截图已识别，但未找到金额", text.take(100))
+                    AppLog.d(TAG, "File still pending/trashed, will retry...")
                 }
-            } catch (e: Exception) {
-                AppLog.e(TAG, "OCR failed", e)
-                sendHintNotification("截图识别失败", e.message ?: "未知错误")
             }
+
+            if (resolved) break
+        }
+
+        if (!resolved || (path == null && displayName == null)) {
+            AppLog.d(TAG, "File never became available after $maxRetries attempts, uri=$uri")
+            return
+        }
+
+        // 用路径或文件名判断是否为截图
+        val isScreenshot = isScreenshotPath(path ?: "") || isScreenshotPath(displayName ?: "")
+        if (!isScreenshot) {
+            AppLog.d(TAG, "Not a screenshot, skipping. path=$path, displayName=$displayName")
+            return
+        }
+
+        AppLog.d(TAG, "Screenshot confirmed after retry, starting OCR...")
+
+        try {
+            // 直接用 content URI（MediaStore URI），不要转 file://
+            val text = ocrEngine.recognizeTextFromUri(this, uri)
+            AppLog.d(TAG, "OCR text length: ${text.length}")
+            AppLog.d(TAG, "OCR full text:\n$text")
+
+            val results = ocrEngine.parseMultipleTransactions(text)
+            AppLog.d(TAG, "parseMultipleTransactions returned ${results.size} result(s)")
+            for ((i, r) in results.withIndex()) {
+                AppLog.d(TAG, "  result[$i]: amount=${r.amount}, merchant=${r.merchant}")
+            }
+
+            val validResults = results.filter { it.amount != null && it.amount > 0 }
+
+            if (validResults.isNotEmpty()) {
+                AppLog.d(TAG, "Sending notification for ${validResults.size} transaction(s)")
+                sendConfirmNotification(validResults, path ?: displayName ?: "screenshot")
+            } else {
+                AppLog.d(TAG, "No valid amount found in OCR text")
+                sendHintNotification("截图已识别，但未找到金额", text.take(100))
+            }
+        } catch (e: Exception) {
+            AppLog.e(TAG, "OCR failed", e)
+            sendHintNotification("截图识别失败", e.message ?: "未知错误")
         }
     }
 

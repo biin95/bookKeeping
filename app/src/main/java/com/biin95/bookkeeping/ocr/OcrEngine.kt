@@ -133,10 +133,19 @@ class OcrEngine @Inject constructor() {
     // 提取所有金额及其在原文中的位置
     private fun extractAllAmounts(text: String): List<Pair<Double, Int>> {
         val results = mutableListOf<Triple<Double, Int, Int>>() // amount, pos, priority
+
+        // ===== 优先级0：关键词匹配（代码逻辑，不用正则）=====
+        // 用代码直接搜索关键词+金额，比正则更可靠（尤其跨行场景）
+        val keywordResults = findAmountByKeyword(text)
+        for ((amount, pos) in keywordResults) {
+            if (amount in MIN_AMOUNT..MAX_AMOUNT && !isYearLike("%.2f".format(amount))) {
+                AppLog.d(TAG, "Keyword match: amount=$amount, pos=$pos, priority=0")
+                results.add(Triple(amount, pos, 0))
+            }
+        }
+
+        // ===== 优先级1-4：正则匹配 =====
         val patterns = listOf(
-            // 优先级0：带"实付/合计"等关键词的金额（最可能是最终金额）
-            // 注意：用 [^\\S\\n] 只匹配空格/制表符，不匹配换行，避免跨行误匹配
-            Pattern.compile("(?:实付|实收款|支付|付款|金额|合计|总计|花费|消费|扣款|转入|转出)[：:\\s]*[¥￥]?[^\\S\\n]*(\\d+\\.?\\d{0,2})") to 0,
             // 优先级1：带货币符号的金额
             Pattern.compile("[¥￥]\\s*(\\d+\\.?\\d{0,2})(?![\\d:])") to 1,
             // 优先级1.5：OCR 把 ¥ 误识别为 * 的情况（*必须紧跟数字且带小数点）
@@ -150,6 +159,10 @@ class OcrEngine @Inject constructor() {
         )
 
         val seenRanges = mutableSetOf<Int>() // 避免同一位置重复匹配
+        // 将关键词匹配的位置加入 seenRanges，避免正则重复匹配同一笔
+        for ((_, pos) in keywordResults) {
+            seenRanges.add(pos)
+        }
 
         for ((pattern, priority) in patterns) {
             val matcher = pattern.matcher(text)
@@ -226,6 +239,80 @@ class OcrEngine @Inject constructor() {
             }
         }
         return false
+    }
+
+    /**
+     * 用代码逻辑搜索"实付款"等关键词，然后在后续文本中找最近的金额
+     * 比纯正则更可靠，尤其处理跨行场景（如"实付款\n11.90"）
+     */
+    private fun findAmountByKeyword(text: String): List<Pair<Double, Int>> {
+        // 关键词列表，按长度降序（长的优先匹配）
+        val keywords = listOf("实付款", "实收款", "实付", "支付", "付款", "商品总价", "金额",
+            "合计", "总计", "花费", "消费", "扣款", "转入", "转出")
+        // 匹配金额的正则：¥/￥前缀 或 裸数字带小数点
+        val amountPattern = Pattern.compile("[¥￥]?(\\d+\\.\\d{2})")
+        val results = mutableListOf<Pair<Double, Int>>()
+        val lines = text.split("\n")
+
+        AppLog.d(TAG, "findAmountByKeyword: text.length=${text.length}, lines=${lines.size}")
+        AppLog.d(TAG, "  contains实付款=${text.contains("实付款")}, indexOf实付款=${text.indexOf("实付款")}")
+
+        for (keyword in keywords) {
+            var keywordIdx = text.indexOf(keyword)
+            if (keywordIdx >= 0) {
+                AppLog.d(TAG, "  Found keyword '$keyword' at pos $keywordIdx")
+            }
+            while (keywordIdx >= 0) {
+                // 从关键词之后开始，找最近的金额（最多往后看 5 行）
+                val keywordLineIdx = getLineIndex(lines, keywordIdx)
+                // 往后看 30 行（电商截图中关键词和金额可能相隔很远）
+                val searchEnd = minOf(lines.size, keywordLineIdx + 30)
+                val searchText = lines.subList(keywordLineIdx, searchEnd).joinToString("\n")
+                // 关键词在 searchText 中的位置
+                val kwLocalIdx = searchText.indexOf(keyword)
+                if (kwLocalIdx < 0) {
+                    AppLog.d(TAG, "    kwLocalIdx < 0, skipping")
+                    keywordIdx = text.indexOf(keyword, keywordIdx + 1); continue
+                }
+
+                val afterKeyword = searchText.substring(kwLocalIdx + keyword.length)
+                AppLog.d(TAG, "    afterKeyword(${afterKeyword.length}): '${afterKeyword.take(60)}'")
+                val matcher = amountPattern.matcher(afterKeyword)
+                if (matcher.find()) {
+                    val amountStr = matcher.group(1)!!
+                    val amount = amountStr.toDoubleOrNull()
+                    AppLog.d(TAG, "    matcher found: '$amountStr' (amount=$amount)")
+                    if (amount != null && amount >= MIN_AMOUNT && amount <= MAX_AMOUNT) {
+                        // 计算在原文中的绝对位置
+                        val absPos = keywordIdx + keyword.length + matcher.start()
+                        if (!isExcludedPosition(text, absPos, absPos + matcher.end())) {
+                            AppLog.d(TAG, "    -> ACCEPTED: amount=$amount, absPos=$absPos")
+                            results.add(amount to absPos)
+                        } else {
+                            AppLog.d(TAG, "    -> excluded position")
+                        }
+                    } else {
+                        AppLog.d(TAG, "    -> amount out of range or null")
+                    }
+                } else {
+                    AppLog.d(TAG, "    no amount pattern match in afterKeyword")
+                }
+                // 继续找下一个同名关键词
+                keywordIdx = text.indexOf(keyword, keywordIdx + keyword.length)
+            }
+        }
+        AppLog.d(TAG, "findAmountByKeyword: ${results.size} result(s)")
+        return results
+    }
+
+    /** 获取字符位置所在的行号 */
+    private fun getLineIndex(lines: List<String>, charPos: Int): Int {
+        var count = 0
+        for ((i, line) in lines.withIndex()) {
+            count += line.length + 1
+            if (count > charPos) return i
+        }
+        return lines.size - 1
     }
 
     // 根据金额在原文中的位置，取出附近 ±2 行作为上下文

@@ -43,6 +43,11 @@ class HomeViewModel @Inject constructor(
         _timeRange.value = getTimeRange(period)
     }
 
+    /** 强制刷新当前时间范围的数据（用于页面重新可见时） */
+    fun refresh() {
+        _timeRange.value = getTimeRange(_currentTimePeriod.value)
+    }
+
     private fun getTimeRange(period: TimePeriod): Pair<Long, Long> {
         val calendar = Calendar.getInstance()
         val end = calendar.timeInMillis
