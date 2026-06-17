@@ -110,11 +110,11 @@ class NlpParser @Inject constructor() {
             val amountStr = if (amount == amount.toLong().toDouble()) {
                 amount.toLong().toString()
             } else {
-                "%.2f".format(amount).replace(".?0*$".toRegex(), "")
+                "%.2f".format(amount).trimEnd('0').trimEnd('.')
             }
             // 去掉 "花了X" "X元" "X块钱" 等
-            remaining = remaining.replace(Regex("花了?$amountStr"), "")
-            remaining = remaining.replace(Regex("$amountStr(?:元|块|块钱)?"), "")
+            remaining = remaining.replace(Regex("花了?" + Regex.escape(amountStr)), "")
+            remaining = remaining.replace(Regex(Regex.escape(amountStr) + "(?:元|块|块钱)?"), "")
         }
 
         // 去掉常见的无用词

@@ -11,7 +11,6 @@ import com.biin95.bookkeeping.ui.detail.TransactionDetailScreen
 import com.biin95.bookkeeping.ui.home.HomeScreen
 import com.biin95.bookkeeping.ui.nlp.NlpInputScreen
 import com.biin95.bookkeeping.ui.settings.SettingsScreen
-import com.biin95.bookkeeping.ui.stats.StatisticsScreen
 
 @Composable
 fun NavGraph(navController: NavHostController) {
@@ -40,9 +39,6 @@ fun NavGraph(navController: NavHostController) {
                 navController = navController,
                 transactionId = transactionId
             )
-        }
-        composable(Screen.Statistics.route) {
-            StatisticsScreen(navController = navController)
         }
         composable(Screen.Settings.route) {
             SettingsScreen(navController = navController)

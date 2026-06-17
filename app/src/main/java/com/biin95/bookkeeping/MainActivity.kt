@@ -54,7 +54,7 @@ fun MainApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val bottomBarScreens = listOf(Screen.Home.route, Screen.Statistics.route, Screen.Settings.route)
+    val bottomBarScreens = listOf(Screen.Home.route, Screen.Settings.route)
     val showBottomBar = currentRoute in bottomBarScreens
 
     Scaffold(
@@ -68,16 +68,6 @@ fun MainApp() {
                         onClick = {
                             navController.navigate(Screen.Home.route) {
                                 popUpTo(Screen.Home.route) { inclusive = true }
-                            }
-                        }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.BarChart, contentDescription = "统计") },
-                        label = { Text("统计") },
-                        selected = currentRoute == Screen.Statistics.route,
-                        onClick = {
-                            navController.navigate(Screen.Statistics.route) {
-                                popUpTo(Screen.Home.route)
                             }
                         }
                     )
