@@ -377,3 +377,25 @@ fun InputBar(
         }
     }
 }
+
+@Composable
+fun TimePeriodSelector(
+    currentPeriod: TimePeriod,
+    onPeriodSelected: (TimePeriod) -> Unit
+) {
+    TimePeriodSelectorRow(currentPeriod = currentPeriod, onPeriodSelected = onPeriodSelected)
+}
+
+fun getCategoryIcon(category: String) = when (category) {
+    "餐饮" -> Icons.Default.Restaurant
+    "交通" -> Icons.Default.DirectionsCar
+    "购物" -> Icons.Default.ShoppingBag
+    "娱乐" -> Icons.Default.SportsEsports
+    "居住" -> Icons.Default.Home
+    "医疗" -> Icons.Default.LocalHospital
+    "教育" -> Icons.Default.School
+    "通讯" -> Icons.Default.Phone
+    "日用" -> Icons.Default.CleaningServices
+    "其他" -> Icons.Default.Category
+    else -> Icons.Default.Category
+}
