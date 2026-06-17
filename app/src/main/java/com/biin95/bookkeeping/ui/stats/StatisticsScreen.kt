@@ -144,7 +144,7 @@ fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpens
             Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .width(100.dp)
+                    .weight(1f)
                     .height(20.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)

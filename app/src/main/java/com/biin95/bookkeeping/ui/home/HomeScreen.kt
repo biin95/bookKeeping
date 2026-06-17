@@ -154,7 +154,7 @@ fun CategoryBar(category: String, amount: Double, totalExpense: Double) {
         Spacer(modifier = Modifier.width(8.dp))
         Box(
             modifier = Modifier
-                .width(80.dp)
+                .weight(1f)
                 .height(14.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
