@@ -67,7 +67,9 @@ fun MainApp() {
                         selected = currentRoute == Screen.Home.route,
                         onClick = {
                             navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Home.route) { inclusive = false }
+                                popUpTo(Screen.Home.route) { inclusive = false; saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
                         }
                     )
@@ -77,7 +79,9 @@ fun MainApp() {
                         selected = currentRoute == Screen.Statistics.route,
                         onClick = {
                             navController.navigate(Screen.Statistics.route) {
-                                popUpTo(Screen.Home.route)
+                                popUpTo(Screen.Home.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
                         }
                     )
@@ -87,7 +91,9 @@ fun MainApp() {
                         selected = currentRoute == Screen.Settings.route,
                         onClick = {
                             navController.navigate(Screen.Settings.route) {
-                                popUpTo(Screen.Home.route)
+                                popUpTo(Screen.Home.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
                         }
                     )
