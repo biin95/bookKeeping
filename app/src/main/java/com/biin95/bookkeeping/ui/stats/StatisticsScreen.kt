@@ -60,9 +60,6 @@ fun StatisticsScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     StatCard("总支出", totalExpense ?: 0.0, MaterialTheme.colorScheme.error)
-                    // StatCard("总收入", totalIncome ?: 0.0, MaterialTheme.colorScheme.primary)
-                    // StatCard("结余", (totalIncome ?: 0.0) - (totalExpense ?: 0.0),
-                        MaterialTheme.colorScheme.tertiary)
                 }
             }
 

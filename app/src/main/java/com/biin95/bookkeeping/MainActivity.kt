@@ -72,7 +72,7 @@ fun MainApp() {
                         }
                     )
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.BarChart, contentDescription = "统计")
+                        icon = { Icon(Icons.Default.BarChart, contentDescription = "统计") },
                         label = { Text("统计") },
                         selected = currentRoute == Screen.Statistics.route,
                         onClick = {
