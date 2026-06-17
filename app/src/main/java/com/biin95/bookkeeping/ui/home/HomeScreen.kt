@@ -172,7 +172,8 @@ fun CategoryBar(category: String, amount: Double, totalExpense: Double) {
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
             softWrap = false,
-            maxLines = 1)
+            maxLines = 1,
+            modifier = Modifier.width(80.dp))
     }
 }
 
