@@ -10,6 +10,7 @@ import com.biin95.bookkeeping.ui.add.AddTransactionScreen
 import com.biin95.bookkeeping.ui.detail.TransactionDetailScreen
 import com.biin95.bookkeeping.ui.home.HomeScreen
 import com.biin95.bookkeeping.ui.nlp.NlpInputScreen
+import com.biin95.bookkeeping.ui.stats.StatisticsScreen
 import com.biin95.bookkeeping.ui.settings.SettingsScreen
 
 @Composable
@@ -39,6 +40,9 @@ fun NavGraph(navController: NavHostController) {
                 navController = navController,
                 transactionId = transactionId
             )
+        }
+        composable(Screen.Statistics.route) {
+            StatisticsScreen(navController = navController)
         }
         composable(Screen.Settings.route) {
             SettingsScreen(navController = navController)
