@@ -160,12 +160,12 @@ fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpens
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "¥%.0f".format(summary.total),
+                "¥%.2f".format(summary.total),
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.width(70.dp)
             )
             Text(
-                "%.1f%%".format(percent),
+                "%.2f%%".format(percent),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -82,9 +82,9 @@ class NlpParser @Inject constructor() {
                 val amount = amountStr.toDoubleOrNull()
                 if (amount != null && amount in 0.01..999999.0) {
                     // 排除年份（如2025）和明显的非金额数字
-                    if (amountStr.length == 4 && amount >= 1900 && amount <= 2100) continue
+                    if (amountStr.length == 4 && !amountStr.contains(".") && amount >= 1900 && amount <= 2100) continue
                     // 排除时间（如1430）
-                    if (amountStr.length == 4 && amount < 24.0) continue
+                    if (amountStr.length == 4 && !amountStr.contains(".") && amount < 24.0) continue
                     return amount
                 }
             }
