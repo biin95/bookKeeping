@@ -133,6 +133,7 @@ class ChatViewModel @Inject constructor(
             }
 
             BackupManager.tryAutoBackup(context, repository)
+            _timeRange.value = getTimeRange(_uiState.value.timePeriod)
         }
     }
 

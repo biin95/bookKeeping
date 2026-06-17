@@ -121,8 +121,7 @@ fun StatCard(label: String, amount: Double, color: androidx.compose.ui.graphics.
 
 @Composable
 fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpense: Double) {
-    val ratio = if (maxAmount > 0) (summary.total / maxAmount).toFloat() else 0f
-    val percent = if (totalExpense > 0) (summary.total / totalExpense * 100) else 0.0
+    val ratio = if (maxAmount > 0) (kotlin.math.abs(summary.total) / kotlin.math.abs(maxAmount)).toFloat() else 0f
     val icon = getCategoryIcon(summary.category)
 
     Column(
@@ -164,11 +163,7 @@ fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpens
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.width(70.dp)
             )
-            Text(
-                "%.2f%%".format(percent),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
         }
     }
 }

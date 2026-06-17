@@ -67,7 +67,7 @@ fun MainApp() {
                         selected = currentRoute == Screen.Home.route,
                         onClick = {
                             navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Home.route) { inclusive = true }
+                                popUpTo(Screen.Home.route) { inclusive = false }
                             }
                         }
                     )

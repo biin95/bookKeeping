@@ -144,7 +144,7 @@ fun StatsOverviewCard(
 
 @Composable
 fun CategoryBar(category: String, amount: Double, totalExpense: Double) {
-    val ratio = if (totalExpense > 0) (amount / totalExpense).toFloat() else 0f
+    val ratio = if (totalExpense != 0.0) (kotlin.math.abs(amount) / kotlin.math.abs(totalExpense)).toFloat().coerceIn(0f, 1f) else 0f
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
