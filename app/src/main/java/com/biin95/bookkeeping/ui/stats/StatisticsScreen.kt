@@ -85,7 +85,7 @@ fun StatisticsScreen(
                     }
                 }
             } else {
-                val maxAmount = categorySummary.maxOfOrNull { it.total } ?: 1.0
+                val maxAmount = categorySummary.maxOfOrNull { kotlin.math.abs(it.total) } ?: 1.0
                 items(categorySummary) { item ->
                     CategorySummaryItem(
                         summary = item,
@@ -121,7 +121,7 @@ fun StatCard(label: String, amount: Double, color: androidx.compose.ui.graphics.
 
 @Composable
 fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpense: Double) {
-    val ratio = if (maxAmount > 0) (kotlin.math.abs(summary.total) / kotlin.math.abs(maxAmount)).toFloat() else 0f
+    val ratio = if (maxAmount > 0) (kotlin.math.abs(summary.total) / maxAmount).toFloat().coerceIn(0f, 1f) else 0f
     val icon = getCategoryIcon(summary.category)
 
     Column(
@@ -144,7 +144,7 @@ fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpens
             Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .width(100.dp)
                     .height(20.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -161,7 +161,9 @@ fun CategorySummaryItem(summary: CategorySummary, maxAmount: Double, totalExpens
             Text(
                 "¥%.2f".format(summary.total),
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(70.dp)
+                softWrap = false,
+                maxLines = 1,
+                modifier = Modifier.width(80.dp)
             )
 
         }

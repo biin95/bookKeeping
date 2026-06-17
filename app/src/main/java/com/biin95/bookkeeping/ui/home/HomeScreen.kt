@@ -154,7 +154,7 @@ fun CategoryBar(category: String, amount: Double, totalExpense: Double) {
         Spacer(modifier = Modifier.width(8.dp))
         Box(
             modifier = Modifier
-                .weight(1f)
+                .width(80.dp)
                 .height(14.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
@@ -170,7 +170,9 @@ fun CategoryBar(category: String, amount: Double, totalExpense: Double) {
         Spacer(modifier = Modifier.width(8.dp))
         Text("¥" + String.format("%.2f", amount),
             style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium)
+            fontWeight = FontWeight.Medium,
+            softWrap = false,
+            maxLines = 1)
     }
 }
 
