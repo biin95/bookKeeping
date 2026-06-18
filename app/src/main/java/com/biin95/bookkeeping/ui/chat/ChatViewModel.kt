@@ -50,7 +50,6 @@ class ChatViewModel @Inject constructor(
             val saved = context.chatPrefs.data.first()[KEY_TIME_PERIOD] ?: TimePeriod.WEEK.ordinal
             val period = TimePeriod.entries.getOrElse(saved) { TimePeriod.WEEK }
             setTimePeriod(period)
-            addSystemMessage("\u8bf4\u53e5\u8bdd\u5c31\u80fd\u8bb0\u8d26\uff0c\u6bd4\u5982\u201c\u7f8e\u56e2\u4e70\u4e86\u676f\u5496\u5561\u82b15.9\u201d")
         }
     }
 
@@ -83,63 +82,115 @@ class ChatViewModel @Inject constructor(
         val result = parser.parse(text)
 
         val userMsg = ChatMessage(id = msgId, type = "user", text = text)
-        _uiState.update { it.copy(messages = it.messages + userMsg) }
+        _uiState.update { it.copy(messages = addMessageWithDateSeparator(it.messages, userMsg)) }
 
-        if (result.amount == null) {
+        if (result.amount == null || result.amount <= 0) {
             val errorMsg = ChatMessage(
                 id = nextMsgId++,
                 type = "response",
-                text = "\u672a\u8bc6\u522b\u5230\u91d1\u989d\uff0c\u8bf7\u786e\u8ba4\u8f93\u5165\u4e86\u91d1\u989d\u4fe1\u606f",
-                nlpResult = result
+                text = "未识别到金额，请确认输入了金额信息",
+                nlpResult = result,
+                isSaved = false
             )
-            _uiState.update { it.copy(messages = it.messages + errorMsg) }
+            _uiState.update { it.copy(messages = addMessageWithDateSeparator(it.messages, errorMsg)) }
         } else {
-            val respMsg = ChatMessage(
-                id = nextMsgId++,
-                type = "response",
-                text = buildResponseText(result),
-                nlpResult = result
-            )
-            _uiState.update { it.copy(messages = it.messages + respMsg) }
+            autoSaveAndAddMessage(result)
         }
     }
 
-    fun confirmSave(nlpResult: NlpResult) {
-        val amount = nlpResult.amount ?: return
-        if (amount <= 0) return
+    fun reloadHistory() {
+        viewModelScope.launch {
+            val history = repository.getAllForExport().sortedBy { it.timestamp }
+            val msgs = mutableListOf<ChatMessage>()
+            history.forEach { txn ->
+                msgs.add(ChatMessage(
+                    id = nextMsgId++,
+                    type = "user",
+                    text = txn.rawText.ifEmpty { "记账" },
+                    timestamp = txn.timestamp
+                ))
+                msgs.add(ChatMessage(
+                    id = nextMsgId++,
+                    type = "response",
+                    text = txn.rawText,
+                    nlpResult = NlpResult(
+                        rawText = txn.rawText,
+                        amount = kotlin.math.abs(txn.amount),
+                        merchant = txn.merchant.ifEmpty { null },
+                        rawMerchant = null,
+                        category = txn.category,
+                        description = txn.description,
+                        isIncome = txn.isIncome
+                    ),
+                    transaction = txn,
+                    isSaved = true,
+                    timestamp = txn.timestamp
+                ))
+            if (msgs.isEmpty()) msgs.add(ChatMessage(id = nextMsgId++, type = "system", text = "说句话就能记账，比如\"美团买了杯冰美式花了9.9\""))
+            }
+            _uiState.update { it.copy(messages = msgs) }
+        }
+    }
 
+
+    private fun autoSaveAndAddMessage(result: NlpResult) {
         viewModelScope.launch {
             val transaction = Transaction(
-                amount = -amount,
-                category = nlpResult.category,
-                merchant = nlpResult.merchant ?: "",
-                description = nlpResult.description,
+                amount = -result.amount!!,
+                category = result.category,
+                merchant = result.merchant ?: "",
+                description = result.description,
                 source = "nlp",
                 isIncome = false,
-                rawText = nlpResult.rawText
+                rawText = result.rawText
             )
-            val id = repository.insert(transaction)
+            val savedId = repository.insert(transaction)
 
-            val text = "\u2705 \u00a5" + String.format("%.2f", amount) + " " + (nlpResult.merchant ?: nlpResult.category)
-            val confirmed = ChatMessage(
+            val responseMsg = ChatMessage(
                 id = nextMsgId++,
-                type = "confirmed",
-                text = text,
-                transaction = transaction.copy(id = id)
+                type = "response",
+                text = buildResponseText(result),
+                nlpResult = result,
+                transaction = transaction.copy(id = savedId),
+                isSaved = true
             )
-            _uiState.update { state ->
-                val filtered = state.messages.filter { it.nlpResult !== nlpResult }
-                state.copy(messages = filtered + confirmed)
-            }
+            _uiState.update { it.copy(messages = addMessageWithDateSeparator(it.messages, responseMsg)) }
 
             BackupManager.tryAutoBackup(context, repository)
             _timeRange.value = getTimeRange(_uiState.value.timePeriod)
         }
     }
 
-    fun rejectSave(nlpResult: NlpResult) {
-        _uiState.update { state ->
-            state.copy(messages = state.messages.filter { it.nlpResult !== nlpResult })
+    fun updateTransaction(transactionId: Long, amount: Double, category: String, merchant: String, description: String) {
+        viewModelScope.launch {
+            val existing = repository.getById(transactionId) ?: return@launch
+            val updated = existing.copy(
+                amount = -amount,
+                category = category,
+                merchant = merchant,
+                description = description
+            )
+            repository.update(updated)
+
+            _uiState.update { state ->
+                state.copy(
+                    messages = state.messages.map { msg ->
+                        if (msg.transaction?.id == transactionId) {
+                            msg.copy(
+                                transaction = updated,
+                                text = "✅ ¥" + String.format("%.2f", amount) + " " + merchant,
+                                nlpResult = msg.nlpResult?.copy(
+                                    amount = amount,
+                                    category = category,
+                                    merchant = merchant,
+                                    description = description
+                                )
+                            )
+                        } else msg
+                    }
+                )
+            }
+            _timeRange.value = getTimeRange(_uiState.value.timePeriod)
         }
     }
 
@@ -151,8 +202,44 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun buildResponseText(result: NlpResult): String {
-        val amount = "\u00a5" + String.format("%.2f", result.amount)
+    private fun needsDateSeparator(messages: List<ChatMessage>, newMsg: ChatMessage): Boolean {
+        if (messages.isEmpty()) return false
+        val lastMsg = messages.lastOrNull { it.type != "date_separator" } ?: return false
+        val cal1 = java.util.Calendar.getInstance().apply { timeInMillis = lastMsg.timestamp }
+        val cal2 = java.util.Calendar.getInstance().apply { timeInMillis = newMsg.timestamp }
+        return cal1.get(java.util.Calendar.DAY_OF_YEAR) != cal2.get(java.util.Calendar.DAY_OF_YEAR) ||
+                cal1.get(java.util.Calendar.YEAR) != cal2.get(java.util.Calendar.YEAR)
+    }
+
+    private fun formatDateSeparator(timestamp: Long): String {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+        val now = java.util.Calendar.getInstance()
+        return when {
+            cal.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR) &&
+                cal.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) -> "4eca5929"
+            cal.apply { add(java.util.Calendar.DAY_OF_YEAR, 1) }.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR) &&
+                cal.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) -> "66285929"
+            else -> java.text.SimpleDateFormat("M6708d65e5", java.util.Locale.getDefault()).format(Date(timestamp))
+        }
+    }
+
+    private fun addMessageWithDateSeparator(messages: List<ChatMessage>, newMsg: ChatMessage): List<ChatMessage> {
+        val result = messages.toMutableList()
+        if (needsDateSeparator(messages, newMsg)) {
+            val dateMsg = ChatMessage(
+                id = -newMsg.id,
+                type = "date_separator",
+                text = formatDateSeparator(newMsg.timestamp),
+                timestamp = newMsg.timestamp
+            )
+            result.add(dateMsg)
+        }
+        result.add(newMsg)
+        return result
+    }
+
+        private fun buildResponseText(result: NlpResult): String {
+        val amount = "¥" + String.format("%.2f", result.amount)
         val merchant = result.merchant ?: ""
         val category = result.category
         val desc = if (result.description.isNotBlank()) "(" + result.description + ")" else ""
@@ -161,7 +248,7 @@ class ChatViewModel @Inject constructor(
 
     private fun addSystemMessage(text: String) {
         val msg = ChatMessage(id = nextMsgId++, type = "system", text = text)
-        _uiState.update { it.copy(messages = it.messages + msg) }
+        _uiState.update { it.copy(messages = addMessageWithDateSeparator(it.messages, msg)) }
     }
 
     companion object {
